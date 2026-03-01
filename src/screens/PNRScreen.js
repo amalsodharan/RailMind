@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,33 +9,58 @@ import {
   Alert,
   ScrollView,
   SafeAreaView,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
 import { getPNRStatus } from '../api/trainApi';
+import { getPNRHistory, savePNREntry, deletePNREntry } from '../utils/storage';
 
 export const PNRScreen = () => {
   const insets = useSafeAreaInsets();
   const [pnr, setPnr] = useState('');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
+  const [history, setHistory] = useState([]);
 
-  const handleCheck = async () => {
-    if (pnr.length !== 10) {
+  useFocusEffect(
+    useCallback(() => {
+      getPNRHistory().then(setHistory);
+    }, [])
+  );
+
+  const handleCheck = async (pnrToCheck = pnr) => {
+    if (pnrToCheck.length !== 10) {
       Alert.alert('Error', 'PNR number must be 10 digits');
       return;
     }
+    Keyboard.dismiss();
     setLoading(true);
     setStatus(null);
     try {
-      const data = await getPNRStatus(pnr);
+      const data = await getPNRStatus(pnrToCheck);
       setStatus(data);
+      if (data?.success !== false) {
+        const entry = {
+          pnr: pnrToCheck,
+          trainName: data?.data?.TrainName || data?.data?.trainName || '',
+          checkedAt: new Date().toISOString(),
+        };
+        await savePNREntry(entry);
+        setHistory(await getPNRHistory());
+      }
     } catch (e) {
       Alert.alert('Error', e?.message || 'Failed to fetch PNR status');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDeleteHistory = async (pnrNo) => {
+    await deletePNREntry(pnrNo);
+    setHistory(await getPNRHistory());
   };
 
   return (
@@ -58,7 +83,40 @@ export const PNRScreen = () => {
             keyboardType="numeric"
             maxLength={10}
           />
-          <TouchableOpacity style={styles.checkBtn} onPress={handleCheck}>
+
+          {/* Recent PNRs */}
+          {history.length > 0 && (
+            <View style={styles.historySection}>
+              <Text style={styles.historyLabel}>RECENT PNRs</Text>
+              <View style={styles.historyChips}>
+                {history.map((h) => (
+                  <View key={h.pnr} style={styles.historyChip}>
+                    <TouchableOpacity
+                      style={styles.historyChipMain}
+                      onPress={() => {
+                        setPnr(h.pnr);
+                        handleCheck(h.pnr);
+                      }}
+                    >
+                      <Ionicons name="time-outline" size={12} color={Colors.primary} />
+                      <Text style={styles.historyChipText}>{h.pnr}</Text>
+                      {h.trainName ? (
+                        <Text style={styles.historyChipSub} numberOfLines={1}>{h.trainName}</Text>
+                      ) : null}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDeleteHistory(h.pnr)}
+                      style={styles.historyChipDelete}
+                    >
+                      <Ionicons name="close" size={12} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <TouchableOpacity style={styles.checkBtn} onPress={() => handleCheck(pnr)}>
             {loading ? (
               <ActivityIndicator color={Colors.white} />
             ) : (
@@ -306,5 +364,54 @@ const styles = StyleSheet.create({
   passengerCoach: {
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  historySection: {
+    marginBottom: 12,
+  },
+  historyLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  historyChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  historyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary + '12',
+    borderWidth: 1.5,
+    borderColor: Colors.primary + '30',
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  historyChipMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 6,
+    paddingLeft: 10,
+    paddingRight: 6,
+  },
+  historyChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: 1,
+  },
+  historyChipSub: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    maxWidth: 80,
+  },
+  historyChipDelete: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderLeftWidth: 1,
+    borderLeftColor: Colors.primary + '25',
   },
 });

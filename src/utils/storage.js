@@ -50,3 +50,32 @@ export const getSettings = async () => {
 export const saveSettings = async (settings) => {
   await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 };
+
+// --- PNR History ---
+
+const PNR_HISTORY_KEY = 'pnr_history';
+
+export const getPNRHistory = async () => {
+  try {
+    const data = await AsyncStorage.getItem(PNR_HISTORY_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const savePNREntry = async (entry) => {
+  const history = await getPNRHistory();
+  // Remove existing entry for same PNR to avoid duplicates
+  const filtered = history.filter((h) => h.pnr !== entry.pnr);
+  // Add new at front (most recent first)
+  filtered.unshift(entry);
+  // Keep max 10 recent
+  await AsyncStorage.setItem(PNR_HISTORY_KEY, JSON.stringify(filtered.slice(0, 10)));
+};
+
+export const deletePNREntry = async (pnr) => {
+  const history = await getPNRHistory();
+  const updated = history.filter((h) => h.pnr !== pnr);
+  await AsyncStorage.setItem(PNR_HISTORY_KEY, JSON.stringify(updated));
+};

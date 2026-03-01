@@ -29,6 +29,9 @@ export const TrainDetailScreen = ({ route, navigation }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Booking mode: 'custom' | 'regular' | 'tatkal'
+  const [bookingMode, setBookingMode] = useState('custom');
+
   // Segmented date/time state
   const [day, setDay] = useState('');
   const [month, setMonth] = useState('');
@@ -77,56 +80,109 @@ export const TrainDetailScreen = ({ route, navigation }) => {
 
   const isDateComplete = () => day.length === 2 && month.length === 2 && year.length === 4;
   const isTimeComplete = () => hour.length >= 1 && minute.length === 2;
-  const isFormValid = () => isDateComplete() && isTimeComplete();
+  const isFormValid = () => {
+    if (!isDateComplete()) return false;
+    if (bookingMode === 'custom') return isTimeComplete();
+    return true; // Regular/Tatkal only need date
+  };
+
+  // Build journey date from DD/MM/YYYY segments
+  const getJourneyDate = () => {
+    const d = parseInt(day);
+    const mo = parseInt(month);
+    const y = parseInt(year);
+    if (!d || !mo || !y) return null;
+    return new Date(y, mo - 1, d);
+  };
+
+  // Returns array of { title, body, triggerDate } to schedule
+  const buildNotifications = () => {
+    const trainLabel = `${trainBase.train_name} (${trainBase.from_stn_name} → ${trainBase.to_stn_name})`;
+    if (bookingMode === 'custom') {
+      const dt = getReminderDateTime();
+      if (!dt) return [];
+      return [{ title: '🚂 Booking Reminder', body: `Book tickets for ${trainLabel}`, triggerDate: dt }];
+    }
+    const journeyDate = getJourneyDate();
+    if (!journeyDate) return [];
+    if (bookingMode === 'regular') {
+      // Booking opens 60 days before journey
+      const bookingOpenDate = addDays(journeyDate, -60);
+      const eve = new Date(bookingOpenDate);
+      eve.setDate(eve.getDate() - 1);
+      eve.setHours(20, 0, 0, 0); // 8:00 PM night before
+      const morning = new Date(bookingOpenDate);
+      morning.setHours(7, 45, 0, 0); // 7:45 AM booking day
+      return [
+        { title: '🚂 Booking Opens Tomorrow!', body: `Regular booking for ${trainLabel} opens tomorrow. Be ready!`, triggerDate: eve },
+        { title: '🚂 Book Now — Booking Open!', body: `Regular booking for ${trainLabel} is open now!`, triggerDate: morning },
+      ].filter(n => n.triggerDate > new Date());
+    }
+    if (bookingMode === 'tatkal') {
+      // Tatkal opens 1 day before journey at 11 AM (remind at 10:45 AM)
+      const tatkalDate = addDays(journeyDate, -1);
+      const eve = new Date(tatkalDate);
+      eve.setDate(eve.getDate() - 1);
+      eve.setHours(20, 0, 0, 0); // 8:00 PM night before
+      const morning = new Date(tatkalDate);
+      morning.setHours(10, 45, 0, 0); // 10:45 AM tatkal day
+      return [
+        { title: '⚡ Tatkal Booking Tomorrow!', body: `Tatkal booking for ${trainLabel} opens tomorrow at 11 AM!`, triggerDate: eve },
+        { title: '⚡ Tatkal Opens in 15 min!', body: `Tatkal booking for ${trainLabel} opens at 11:00 AM. Book now!`, triggerDate: morning },
+      ].filter(n => n.triggerDate > new Date());
+    }
+    return [];
+  };
 
   const resetModal = () => {
     setDay(''); setMonth(''); setYear('');
     setHour(''); setMinute(''); setAmpm('AM');
+    setBookingMode('custom');
     setModalVisible(false);
   };
 
   const handleSetReminder = async () => {
-    const reminderDateTime = getReminderDateTime();
-    if (!reminderDateTime) {
-      Alert.alert('Missing Info', 'Please fill in all date and time fields.');
-      return;
-    }
-    if (isNaN(reminderDateTime.getTime())) {
-      Alert.alert('Invalid Date', 'The date or time you entered is not valid.');
-      return;
-    }
-    if (reminderDateTime <= new Date()) {
-      Alert.alert('Invalid Time', 'Please choose a future date and time.');
+    const notifications = buildNotifications();
+    if (notifications.length === 0) {
+      if (bookingMode === 'custom') {
+        Alert.alert('Missing Info', 'Please fill in all date and time fields.');
+      } else if (bookingMode === 'regular') {
+        Alert.alert('Date Too Close', 'The booking open date (journey − 60 days) is already in the past. Pick a later journey date.');
+      } else {
+        Alert.alert('Date Too Close', 'The Tatkal booking date (journey − 1 day) is already in the past. Pick a later journey date.');
+      }
       return;
     }
     setSaving(true);
     try {
       const hasPermission = await requestNotificationPermission();
       const settings = await getSettings();
-      let notificationId = '';
+      const notificationIds = [];
       if (hasPermission && settings.notificationsEnabled) {
-        notificationId = await scheduleNotification(
-          '🚂 Train Booking Reminder',
-          `Book your ticket for ${trainBase.train_name} (${trainBase.from_stn_name} → ${trainBase.to_stn_name})`,
-          reminderDateTime,
-          settings.soundEnabled
-        );
+        for (const n of notifications) {
+          const id = await scheduleNotification(n.title, n.body, n.triggerDate, settings.soundEnabled);
+          notificationIds.push(id);
+        }
       }
+      const modeLabel = bookingMode === 'regular' ? 'Regular Booking' : bookingMode === 'tatkal' ? 'Tatkal' : 'Custom';
       const reminder = {
         id: Date.now().toString(),
         trainNo: trainBase.train_no,
         trainName: trainBase.train_name,
         fromStation: trainBase.from_stn_name,
         toStation: trainBase.to_stn_name,
-        reminderTime: reminderDateTime.toISOString(),
-        notificationId,
+        reminderTime: notifications[0].triggerDate.toISOString(),
+        notificationId: notificationIds[0] || '',
+        notificationIds,
+        bookingMode: modeLabel,
         createdAt: new Date().toISOString(),
       };
       await saveReminder(reminder);
       resetModal();
+      const count = notifications.length;
       Alert.alert(
         '✅ Reminder Set!',
-        `You'll be reminded on ${format(reminderDateTime, "MMM dd, yyyy 'at' hh:mm a")}`,
+        `${count} notification${count > 1 ? 's' : ''} scheduled for ${modeLabel} booking of ${trainBase.train_name}.`,
         [
           { text: 'View Reminders', onPress: () => navigation.navigate('Reminders') },
           { text: 'OK' },
@@ -238,8 +294,49 @@ export const TrainDetailScreen = ({ route, navigation }) => {
               </TouchableOpacity>
             </View>
 
+            {/* Booking Mode Selector */}
+            <Text style={styles.modalLabel}>BOOKING TYPE</Text>
+            <View style={styles.modeRow}>
+              {[
+                { key: 'custom', label: '⏰ Custom', desc: 'Pick date & time' },
+                { key: 'regular', label: '🚂 Regular', desc: '60-day booking' },
+                { key: 'tatkal', label: '⚡ Tatkal', desc: '1-day booking' },
+              ].map(({ key, label, desc }) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.modeBtn, bookingMode === key && styles.modeBtnActive]}
+                  onPress={() => setBookingMode(key)}
+                >
+                  <Text style={[styles.modeBtnText, bookingMode === key && styles.modeBtnTextActive]}>{label}</Text>
+                  <Text style={[styles.modeBtnDesc, bookingMode === key && styles.modeBtnDescActive]}>{desc}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Info card for Regular/Tatkal modes */}
+            {bookingMode === 'regular' && (
+              <View style={styles.infoCard}>
+                <Ionicons name="information-circle" size={16} color={Colors.primary} />
+                <Text style={styles.infoText}>
+                  Enter journey date → you'll be notified{'\n'}
+                  • Night before booking day at <Text style={styles.infoBold}>8:00 PM</Text>{'\n'}
+                  • Booking morning at <Text style={styles.infoBold}>7:45 AM</Text>
+                </Text>
+              </View>
+            )}
+            {bookingMode === 'tatkal' && (
+              <View style={[styles.infoCard, { borderColor: '#FF9800' + '40', backgroundColor: '#FF9800' + '10' }]}>
+                <Ionicons name="flash" size={16} color="#FF9800" />
+                <Text style={[styles.infoText, { color: '#E65100' }]}>
+                  Enter journey date → you'll be notified{'\n'}
+                  • Day before tatkal at <Text style={styles.infoBold}>8:00 PM</Text>{'\n'}
+                  • Tatkal morning at <Text style={styles.infoBold}>10:45 AM</Text>
+                </Text>
+              </View>
+            )}
+
             {/* Quick Select */}
-            <Text style={styles.modalLabel}>QUICK SELECT</Text>
+            <Text style={[styles.modalLabel, { marginTop: 12 }]}>QUICK SELECT</Text>
             <View style={styles.quickRow}>
               {[{ label: 'Tomorrow', days: 1 }, { label: '+3 Days', days: 3 }, { label: '+1 Week', days: 7 }].map(({ label, days }) => {
                 const chipDate = addDays(new Date(), days);
@@ -318,70 +415,78 @@ export const TrainDetailScreen = ({ route, navigation }) => {
               </View>
             </View>
 
-            {/* Time Segments */}
-            <Text style={[styles.modalLabel, { marginTop: 16 }]}>⏱ TIME</Text>
-            <View style={styles.segmentRow}>
-              <View style={styles.segmentBox}>
-                <Text style={styles.segmentLabel}>HH</Text>
-                <TextInput
-                  ref={hourRef}
-                  style={styles.segmentInput}
-                  value={hour}
-                  onChangeText={(v) => {
-                    const clean = v.replace(/\D/g, '').slice(0, 2);
-                    setHour(clean);
-                    if (clean.length === 2) minuteRef.current?.focus();
-                  }}
-                  placeholder="HH"
-                  placeholderTextColor={Colors.textSecondary}
-                  keyboardType="numeric"
-                  maxLength={2}
-                  returnKeyType="next"
-                />
-              </View>
-              <Text style={styles.segmentSep}>:</Text>
-              <View style={styles.segmentBox}>
-                <Text style={styles.segmentLabel}>MM</Text>
-                <TextInput
-                  ref={minuteRef}
-                  style={styles.segmentInput}
-                  value={minute}
-                  onChangeText={(v) => {
-                    const clean = v.replace(/\D/g, '').slice(0, 2);
-                    setMinute(clean);
-                  }}
-                  placeholder="MM"
-                  placeholderTextColor={Colors.textSecondary}
-                  keyboardType="numeric"
-                  maxLength={2}
-                  returnKeyType="done"
-                />
-              </View>
-              {/* AM / PM Toggle */}
-              <View style={styles.ampmRow}>
-                {['AM', 'PM'].map((v) => (
-                  <TouchableOpacity
-                    key={v}
-                    style={[styles.ampmBtn, ampm === v && styles.ampmBtnActive]}
-                    onPress={() => setAmpm(v)}
-                  >
-                    <Text style={[styles.ampmText, ampm === v && styles.ampmTextActive]}>{v}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
+            {/* Time Segments — only for Custom mode */}
+            {bookingMode === 'custom' && (
+              <>
+                <Text style={[styles.modalLabel, { marginTop: 16 }]}>⏱ TIME</Text>
+                <View style={styles.segmentRow}>
+                  <View style={styles.segmentBox}>
+                    <Text style={styles.segmentLabel}>HH</Text>
+                    <TextInput
+                      ref={hourRef}
+                      style={styles.segmentInput}
+                      value={hour}
+                      onChangeText={(v) => {
+                        const clean = v.replace(/\D/g, '').slice(0, 2);
+                        setHour(clean);
+                        if (clean.length === 2) minuteRef.current?.focus();
+                      }}
+                      placeholder="HH"
+                      placeholderTextColor={Colors.textSecondary}
+                      keyboardType="numeric"
+                      maxLength={2}
+                      returnKeyType="next"
+                    />
+                  </View>
+                  <Text style={styles.segmentSep}>:</Text>
+                  <View style={styles.segmentBox}>
+                    <Text style={styles.segmentLabel}>MM</Text>
+                    <TextInput
+                      ref={minuteRef}
+                      style={styles.segmentInput}
+                      value={minute}
+                      onChangeText={(v) => {
+                        const clean = v.replace(/\D/g, '').slice(0, 2);
+                        setMinute(clean);
+                      }}
+                      placeholder="MM"
+                      placeholderTextColor={Colors.textSecondary}
+                      keyboardType="numeric"
+                      maxLength={2}
+                      returnKeyType="done"
+                    />
+                  </View>
+                  <View style={styles.ampmRow}>
+                    {['AM', 'PM'].map((v) => (
+                      <TouchableOpacity
+                        key={v}
+                        style={[styles.ampmBtn, ampm === v && styles.ampmBtnActive]}
+                        onPress={() => setAmpm(v)}
+                      >
+                        <Text style={[styles.ampmText, ampm === v && styles.ampmTextActive]}>{v}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </>
+            )}
 
             {/* Preview */}
             {isFormValid() && (() => {
-              const dt = getReminderDateTime();
-              return dt && !isNaN(dt.getTime()) ? (
+              const notifs = buildNotifications();
+              if (!notifs.length) return null;
+              return (
                 <View style={styles.previewBox}>
                   <Ionicons name="notifications" size={16} color={Colors.primary} />
-                  <Text style={styles.previewText}>
-                    Reminder on {format(dt, "MMM dd, yyyy 'at' hh:mm a")}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    {notifs.map((n, i) => (
+                      <Text key={i} style={styles.previewText}>
+                        {i === 0 ? '🔔' : '🔔'} {format(n.triggerDate, "MMM dd 'at' hh:mm a")}
+                      </Text>
+                    ))}
+                  </View>
                 </View>
-              ) : null;
+              );
             })()}
 
             {/* Actions */}
@@ -586,7 +691,62 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 20,
+    marginBottom: 16,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  modeBtnActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  modeBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  modeBtnTextActive: {
+    color: Colors.white,
+  },
+  modeBtnDesc: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  modeBtnDescActive: {
+    color: 'rgba(255,255,255,0.8)',
+  },
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: Colors.primary + '10',
+    borderWidth: 1,
+    borderColor: Colors.primary + '40',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 12,
+    color: Colors.primary,
+    lineHeight: 18,
+  },
+  infoBold: {
+    fontWeight: '800',
   },
   closeBtn: {
     width: 32,
