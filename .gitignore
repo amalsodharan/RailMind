@@ -14,10 +14,17 @@ android/local.properties
 ios/build/
 ios/Pods/
 
+# Android signing keys (sensitive — never commit)
+*.keystore
+*.jks
+
 # Environment
 .env
 .env.local
 .env.*
+
+# IDE
+.idea/
 
 # OS files
 .DS_Store
