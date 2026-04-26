@@ -79,3 +79,28 @@ export const deletePNREntry = async (pnr) => {
   const updated = history.filter((h) => h.pnr !== pnr);
   await AsyncStorage.setItem(PNR_HISTORY_KEY, JSON.stringify(updated));
 };
+
+// --- Recent Train Searches ---
+
+const RECENT_SEARCHES_KEY = 'recent_train_searches';
+
+export const getRecentSearches = async () => {
+  try {
+    const data = await AsyncStorage.getItem(RECENT_SEARCHES_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+};
+
+// entry: { trainNo, trainName }
+export const saveRecentSearch = async (entry) => {
+  const history = await getRecentSearches();
+  const filtered = history.filter((h) => h.trainNo !== entry.trainNo);
+  filtered.unshift(entry);
+  await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(filtered.slice(0, 8)));
+};
+
+export const clearRecentSearches = async () => {
+  await AsyncStorage.removeItem(RECENT_SEARCHES_KEY);
+};

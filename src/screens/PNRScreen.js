@@ -1,16 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  SafeAreaView,
-  Keyboard,
+  View, Text, StyleSheet, TextInput, TouchableOpacity,
+  ActivityIndicator, ScrollView, SafeAreaView, Keyboard,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,14 +19,11 @@ export const PNRScreen = () => {
   const [history, setHistory] = useState([]);
 
   useFocusEffect(
-    useCallback(() => {
-      getPNRHistory().then(setHistory);
-    }, [])
+    useCallback(() => { getPNRHistory().then(setHistory); }, [])
   );
 
   const handleCheck = async (pnrToCheck = pnr) => {
     if (pnrToCheck.length !== 10) {
-      Alert.alert('Error', 'PNR number must be 10 digits');
       return;
     }
     Keyboard.dismiss();
@@ -52,7 +42,8 @@ export const PNRScreen = () => {
         setHistory(await getPNRHistory());
       }
     } catch (e) {
-      Alert.alert('Error', e?.message || 'Failed to fetch PNR status');
+      // show inline error via setStatus
+      setStatus({ success: false });
     } finally {
       setLoading(false);
     }
@@ -63,26 +54,55 @@ export const PNRScreen = () => {
     setHistory(await getPNRHistory());
   };
 
+  const isValid = pnr.length === 10;
+
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-          <Ionicons name="ticket" size={28} color={Colors.white} />
-          <Text style={styles.headerTitle}>PNR Status</Text>
-          <Text style={styles.headerSub}>Check your booking status</Text>
-        </View>
+      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
-        <View style={styles.form}>
-          <Text style={styles.label}>PNR NUMBER</Text>
-          <TextInput
-            style={styles.input}
-            value={pnr}
-            onChangeText={setPnr}
-            placeholder="Enter 10-digit PNR"
-            placeholderTextColor={Colors.textSecondary}
-            keyboardType="numeric"
-            maxLength={10}
-          />
+        {/* ── Gradient Header ── */}
+        <LinearGradient
+          colors={[Colors.primary, Colors.primaryLight]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.header, { paddingTop: insets.top + 16 }]}
+        >
+          <View style={styles.headerRow}>
+            <View>
+              <Text style={styles.headerTitle}>PNR Status</Text>
+              <Text style={styles.headerSub}>Check your booking confirmation</Text>
+            </View>
+            <View style={styles.headerIcon}>
+              <Ionicons name="ticket-outline" size={22} color={Colors.primary} />
+            </View>
+          </View>
+        </LinearGradient>
+
+        {/* ── Input Card ── */}
+        <View style={styles.card}>
+          <Text style={styles.inputLabel}>PNR NUMBER</Text>
+          <View style={styles.inputBox}>
+            <Ionicons name="barcode-outline" size={20} color={Colors.textSecondary} />
+            <TextInput
+              style={styles.input}
+              value={pnr}
+              onChangeText={setPnr}
+              placeholder="Enter 10-digit PNR"
+              placeholderTextColor={Colors.textSecondary}
+              keyboardType="numeric"
+              maxLength={10}
+              onSubmitEditing={() => handleCheck(pnr)}
+              returnKeyType="search"
+            />
+            {pnr.length > 0 && (
+              <TouchableOpacity onPress={() => { setPnr(''); setStatus(null); }}>
+                <Ionicons name="close-circle" size={18} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={styles.helperText}>
+            {pnr.length}/10 digits entered
+          </Text>
 
           {/* Recent PNRs */}
           {history.length > 0 && (
@@ -93,16 +113,15 @@ export const PNRScreen = () => {
                   <View key={h.pnr} style={styles.historyChip}>
                     <TouchableOpacity
                       style={styles.historyChipMain}
-                      onPress={() => {
-                        setPnr(h.pnr);
-                        handleCheck(h.pnr);
-                      }}
+                      onPress={() => { setPnr(h.pnr); handleCheck(h.pnr); }}
                     >
                       <Ionicons name="time-outline" size={12} color={Colors.primary} />
-                      <Text style={styles.historyChipText}>{h.pnr}</Text>
-                      {h.trainName ? (
-                        <Text style={styles.historyChipSub} numberOfLines={1}>{h.trainName}</Text>
-                      ) : null}
+                      <View>
+                        <Text style={styles.historyChipText}>{h.pnr}</Text>
+                        {h.trainName ? (
+                          <Text style={styles.historyChipSub} numberOfLines={1}>{h.trainName}</Text>
+                        ) : null}
+                      </View>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleDeleteHistory(h.pnr)}
@@ -116,40 +135,71 @@ export const PNRScreen = () => {
             </View>
           )}
 
-          <TouchableOpacity style={styles.checkBtn} onPress={() => handleCheck(pnr)}>
-            {loading ? (
-              <ActivityIndicator color={Colors.white} />
-            ) : (
-              <>
-                <Ionicons name="search" size={18} color={Colors.white} />
-                <Text style={styles.checkBtnText}>Check Status</Text>
-              </>
-            )}
+          {/* Check Button */}
+          <TouchableOpacity
+            onPress={() => handleCheck(pnr)}
+            disabled={loading || !isValid}
+            activeOpacity={0.85}
+            style={{ marginTop: 4 }}
+          >
+            <LinearGradient
+              colors={isValid ? [Colors.primary, Colors.primaryLight] : [Colors.border, Colors.border]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.checkBtn}
+            >
+              {loading ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <>
+                  <Ionicons name="search" size={18} color={Colors.white} />
+                  <Text style={styles.checkBtnText}>Check Status</Text>
+                </>
+              )}
+            </LinearGradient>
           </TouchableOpacity>
         </View>
 
+        {/* ── Result ── */}
         {status && (
           <View style={styles.result}>
             {status.success === false ? (
               <View style={styles.errorCard}>
-                <Ionicons name="close-circle" size={40} color={Colors.danger} />
-                <Text style={styles.errorText}>PNR not found or invalid</Text>
+                <View style={styles.errorIconWrap}>
+                  <Ionicons name="close-circle-outline" size={36} color={Colors.danger} />
+                </View>
+                <Text style={styles.errorTitle}>PNR Not Found</Text>
+                <Text style={styles.errorSub}>Please check the number and try again.</Text>
               </View>
             ) : (
               <>
+                {/* Result header */}
                 <View style={styles.resultHeader}>
-                  <Text style={styles.resultTitle}>PNR: {pnr}</Text>
-                  <View style={styles.statusBadge}>
-                    <Text style={styles.statusBadgeText}>
+                  <View>
+                    <Text style={styles.resultPNR}>PNR: {pnr}</Text>
+                    <Text style={styles.resultTrain}>
+                      {status?.data?.TrainName || status?.data?.trainName || 'Train Details'}
+                    </Text>
+                  </View>
+                  <View style={[styles.statusBadge, {
+                    backgroundColor: (status?.data?.BookingStatus || '').toLowerCase().includes('confirm')
+                      ? Colors.success + '20' : Colors.warning + '20',
+                    borderColor: (status?.data?.BookingStatus || '').toLowerCase().includes('confirm')
+                      ? Colors.success + '50' : Colors.warning + '50',
+                  }]}>
+                    <Text style={[styles.statusBadgeText, {
+                      color: (status?.data?.BookingStatus || '').toLowerCase().includes('confirm')
+                        ? Colors.success : Colors.warning,
+                    }]}>
                       {status?.data?.BookingStatus || 'Active'}
                     </Text>
                   </View>
                 </View>
 
+                {/* Info rows */}
                 {status?.data && (
-                  <>
+                  <View style={styles.infoGrid}>
                     {[
-                      ['Train', status.data.TrainName || status.data.trainName],
                       ['Train No.', status.data.TrainNo || status.data.trainNo],
                       ['Date of Journey', status.data.Doj || status.data.dateOfJourney],
                       ['Boarding', status.data.BoardingPoint],
@@ -163,255 +213,159 @@ export const PNRScreen = () => {
                         </View>
                       ) : null
                     )}
+                  </View>
+                )}
 
-                    {status.data.PassengerStatus?.length > 0 && (
-                      <>
-                        <Text style={styles.passengerTitle}>Passenger Status</Text>
-                        {status.data.PassengerStatus.map((p, i) => (
-                          <View key={i} style={styles.passengerRow}>
-                            <View style={styles.passengerNo}>
-                              <Text style={styles.passengerNoText}>{i + 1}</Text>
-                            </View>
-                            <View style={styles.passengerInfo}>
-                              <Text style={styles.passengerStatus}>
-                                {p.CurrentStatus || p.currentStatus || 'Unknown'}
-                              </Text>
-                              <Text style={styles.passengerCoach}>
-                                Coach: {p.CurrentCoach || p.currentCoach || '—'} · Berth:{' '}
-                                {p.CurrentBerth || p.currentBerth || '—'}
-                              </Text>
-                            </View>
-                          </View>
-                        ))}
-                      </>
-                    )}
+                {/* Passenger status */}
+                {status?.data?.PassengerStatus?.length > 0 && (
+                  <>
+                    <Text style={styles.passengerTitle}>Passenger Status</Text>
+                    {status.data.PassengerStatus.map((p, i) => (
+                      <View key={i} style={styles.passengerRow}>
+                        <View style={styles.passengerNo}>
+                          <Text style={styles.passengerNoText}>{i + 1}</Text>
+                        </View>
+                        <View style={styles.passengerInfo}>
+                          <Text style={styles.passengerStatus}>
+                            {p.CurrentStatus || p.currentStatus || 'Unknown'}
+                          </Text>
+                          <Text style={styles.passengerCoach}>
+                            Coach: {p.CurrentCoach || p.currentCoach || '—'} · Berth: {p.CurrentBerth || p.currentBerth || '—'}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
                   </>
                 )}
               </>
             )}
           </View>
         )}
+
+        {/* ── Empty tip ── */}
+        {!status && !loading && (
+          <View style={styles.tip}>
+            <Ionicons name="information-circle-outline" size={18} color={Colors.primary} />
+            <Text style={styles.tipText}>
+              Enter your 10-digit PNR number to check seat confirmation, coach, and berth details.
+            </Text>
+          </View>
+        )}
+
+        <View style={{ height: 32 }} />
       </ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  container: { flex: 1 },
-  header: {
-    backgroundColor: Colors.primary,
-    padding: 24,
-    paddingTop: 24,
-    alignItems: 'center',
+  safe: { flex: 1, backgroundColor: Colors.primary },
+  container: { flex: 1, backgroundColor: Colors.background },
+
+  // Header
+  header: { paddingHorizontal: 20, paddingBottom: 28, paddingTop: 24 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerTitle: { fontSize: 24, fontWeight: '800', color: Colors.white, letterSpacing: -0.5 },
+  headerSub: { fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  headerIcon: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: Colors.white,
+    justifyContent: 'center', alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: Colors.white,
-    marginTop: 8,
-  },
-  headerSub: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.75)',
-    marginTop: 4,
-  },
-  form: {
+
+  // Card
+  card: {
     backgroundColor: Colors.card,
-    margin: 16,
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
+    marginHorizontal: 16, marginTop: -16,
+    borderRadius: 20, padding: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08, shadowRadius: 12, elevation: 5,
+    marginBottom: 16,
   },
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.primary,
-    marginBottom: 8,
-    letterSpacing: 0.5,
-  },
-  input: {
+  inputLabel: { fontSize: 11, fontWeight: '700', color: Colors.textSecondary, letterSpacing: 0.5, marginBottom: 8 },
+  inputBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: Colors.background,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 18,
-    color: Colors.text,
-    fontWeight: '700',
-    textAlign: 'center',
-    letterSpacing: 2,
-    marginBottom: 12,
+    borderWidth: 1.5, borderColor: Colors.border,
+    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 14,
+    marginBottom: 6,
   },
+  input: { flex: 1, fontSize: 18, color: Colors.text, fontWeight: '700', letterSpacing: 2 },
+  helperText: { fontSize: 12, color: Colors.textSecondary, marginBottom: 12 },
+
+  // History
+  historySection: { marginBottom: 16, borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 12 },
+  historyLabel: { fontSize: 11, fontWeight: '700', color: Colors.textSecondary, letterSpacing: 0.5, marginBottom: 8 },
+  historyChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  historyChip: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.primary + '10',
+    borderWidth: 1.5, borderColor: Colors.primary + '30',
+    borderRadius: 20, overflow: 'hidden',
+  },
+  historyChipMain: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingLeft: 10, paddingRight: 6 },
+  historyChipText: { fontSize: 13, fontWeight: '700', color: Colors.primary, letterSpacing: 1 },
+  historyChipSub: { fontSize: 10, color: Colors.textSecondary, maxWidth: 80 },
+  historyChipDelete: { paddingVertical: 6, paddingHorizontal: 8, borderLeftWidth: 1, borderLeftColor: Colors.primary + '25' },
+
+  // Button
   checkBtn: {
-    backgroundColor: Colors.primaryLight,
-    borderRadius: 14,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
+    borderRadius: 14, paddingVertical: 15,
+    flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8,
   },
-  checkBtnText: {
-    color: Colors.white,
-    fontSize: 15,
-    fontWeight: '700',
-  },
+  checkBtnText: { color: Colors.white, fontSize: 15, fontWeight: '700' },
+
+  // Result
   result: {
     backgroundColor: Colors.card,
-    marginHorizontal: 16,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 32,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
+    marginHorizontal: 16, borderRadius: 20, padding: 16, marginBottom: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
   },
-  errorCard: {
-    alignItems: 'center',
-    padding: 20,
+  errorCard: { alignItems: 'center', padding: 24 },
+  errorIconWrap: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: Colors.danger + '12',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 12,
   },
-  errorText: {
-    color: Colors.danger,
-    fontSize: 15,
-    fontWeight: '600',
-    marginTop: 8,
-  },
+  errorTitle: { fontSize: 17, fontWeight: '800', color: Colors.text, marginBottom: 6 },
+  errorSub: { fontSize: 13, color: Colors.textSecondary, textAlign: 'center' },
+
   resultHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    marginBottom: 16, paddingBottom: 12,
+    borderBottomWidth: 1, borderBottomColor: Colors.border,
   },
-  resultTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: Colors.text,
-  },
+  resultPNR: { fontSize: 13, fontWeight: '700', color: Colors.textSecondary },
+  resultTrain: { fontSize: 15, fontWeight: '800', color: Colors.text, marginTop: 2 },
   statusBadge: {
-    backgroundColor: Colors.success,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    borderWidth: 1, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 4,
   },
-  statusBadgeText: {
-    color: Colors.white,
-    fontSize: 11,
-    fontWeight: '700',
-  },
+  statusBadgeText: { fontSize: 11, fontWeight: '700' },
+
+  infoGrid: { marginBottom: 8 },
   infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.background,
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: Colors.background,
   },
-  infoLabel: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  infoValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.text,
-    maxWidth: 200,
-    textAlign: 'right',
-  },
-  passengerTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.text,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  passengerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.background,
-    gap: 12,
-  },
-  passengerNo: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  passengerNoText: {
-    color: Colors.white,
-    fontSize: 12,
-    fontWeight: '700',
-  },
+  infoLabel: { fontSize: 13, color: Colors.textSecondary },
+  infoValue: { fontSize: 13, fontWeight: '600', color: Colors.text, maxWidth: 200, textAlign: 'right' },
+
+  passengerTitle: { fontSize: 13, fontWeight: '700', color: Colors.text, marginTop: 12, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+  passengerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.background, gap: 12 },
+  passengerNo: { width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center' },
+  passengerNoText: { color: Colors.white, fontSize: 12, fontWeight: '700' },
   passengerInfo: { flex: 1 },
-  passengerStatus: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.success,
+  passengerStatus: { fontSize: 13, fontWeight: '700', color: Colors.success },
+  passengerCoach: { fontSize: 12, color: Colors.textSecondary },
+
+  // Tip
+  tip: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    backgroundColor: Colors.primary + '0D',
+    borderWidth: 1, borderColor: Colors.primary + '25',
+    borderRadius: 14, padding: 14, marginHorizontal: 16,
   },
-  passengerCoach: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  historySection: {
-    marginBottom: 12,
-  },
-  historyLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.primary,
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  historyChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  historyChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primary + '12',
-    borderWidth: 1.5,
-    borderColor: Colors.primary + '30',
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  historyChipMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingVertical: 6,
-    paddingLeft: 10,
-    paddingRight: 6,
-  },
-  historyChipText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.primary,
-    letterSpacing: 1,
-  },
-  historyChipSub: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-    maxWidth: 80,
-  },
-  historyChipDelete: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderLeftWidth: 1,
-    borderLeftColor: Colors.primary + '25',
-  },
+  tipText: { flex: 1, fontSize: 13, color: Colors.textSecondary, lineHeight: 20 },
 });

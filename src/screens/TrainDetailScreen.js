@@ -12,13 +12,46 @@ import {
   KeyboardAvoidingView,
   Platform,
   TextInput,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { format, addDays } from 'date-fns';
 import { Colors } from '../theme/colors';
 import { getTrainRoute } from '../api/trainApi';
 import { saveReminder, getSettings } from '../utils/storage';
 import { scheduleNotification, requestNotificationPermission } from '../utils/notifications';
+
+// Silently set a phone alarm; falls back to Clock UI if silent fails (Android 16)
+const setPhoneAlarm = async (date, label) => {
+  if (Platform.OS !== 'android') return false;
+  const h = date.getHours();
+  const m = date.getMinutes();
+  const base = [
+    { key: 'android.intent.extra.alarm.MESSAGE', value: label },
+    { key: 'android.intent.extra.alarm.HOUR', value: h },
+    { key: 'android.intent.extra.alarm.MINUTES', value: m },
+    { key: 'android.intent.extra.alarm.VIBRATE', value: true },
+  ];
+  try {
+    await Linking.sendIntent('android.intent.action.SET_ALARM', [
+      ...base,
+      { key: 'android.intent.extra.alarm.SKIP_UI', value: true },
+    ]);
+    return true;
+  } catch {
+    try {
+      await Linking.sendIntent('android.intent.action.SET_ALARM', [
+        ...base,
+        { key: 'android.intent.extra.alarm.SKIP_UI', value: false },
+      ]);
+      return true;
+    } catch (e) {
+      console.log('Alarm intent failed:', e);
+      return false;
+    }
+  }
+};
 
 export const TrainDetailScreen = ({ route, navigation }) => {
   const { train } = route.params;
@@ -178,14 +211,31 @@ export const TrainDetailScreen = ({ route, navigation }) => {
         createdAt: new Date().toISOString(),
       };
       await saveReminder(reminder);
+
+      // Auto-set phone alarms silently (Android Clock toast will confirm)
+      const alarmLabel = `RailMind: ${trainBase.train_name} (${modeLabel})`;
+      let alarmOk = true;
+      for (const n of notifications) {
+        const ok = await setPhoneAlarm(n.triggerDate, alarmLabel);
+        if (!ok) alarmOk = false;
+      }
+
       resetModal();
       const count = notifications.length;
+      const alarmTimes = notifications
+        .map(n => format(n.triggerDate, 'hh:mm a, MMM dd'))
+        .join(' & ');
+      const alarmNote = alarmOk
+        ? `⏰ Phone alarm${notifications.length > 1 ? 's' : ''} set: ${alarmTimes}`
+        : `⚠️ Phone alarm failed — please set manually at: ${alarmTimes}`;
       Alert.alert(
         '✅ Reminder Set!',
-        `${count} notification${count > 1 ? 's' : ''} scheduled for ${modeLabel} booking of ${trainBase.train_name}.`,
+        `${modeLabel} booking reminders saved for ${trainBase.train_name}.\n\n` +
+        `🔔 App notifications: ${count}\n` +
+        alarmNote,
         [
           { text: 'View Reminders', onPress: () => navigation.navigate('Reminders') },
-          { text: 'OK' },
+          { text: 'OK', style: 'cancel' },
         ]
       );
     } catch (e) {
@@ -199,10 +249,17 @@ export const TrainDetailScreen = ({ route, navigation }) => {
     <SafeAreaView style={styles.safe}>
       <ScrollView style={styles.container}>
         {/* Train Header */}
-        <View style={styles.trainHeader}>
+        <LinearGradient
+          colors={[Colors.primary, Colors.primaryLight]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.trainHeader}
+        >
           <View style={styles.trainHeaderInner}>
-            <Ionicons name="train" size={28} color={Colors.white} />
-            <View style={{ marginLeft: 12 }}>
+            <View style={styles.trainIconCircle}>
+              <Ionicons name="train" size={20} color={Colors.primary} />
+            </View>
+            <View style={{ marginLeft: 12, flex: 1 }}>
               <Text style={styles.trainName}>{trainBase.train_name}</Text>
               <Text style={styles.trainNo}>#{trainBase.train_no}</Text>
             </View>
@@ -214,16 +271,16 @@ export const TrainDetailScreen = ({ route, navigation }) => {
             </View>
             <View style={styles.tripMiddle}>
               <View style={styles.tripLine} />
-              <Ionicons name="arrow-forward-circle" size={24} color={Colors.accent} />
+              <Ionicons name="arrow-forward-circle" size={24} color="rgba(255,255,255,0.6)" />
               <View style={styles.tripLine} />
             </View>
-            <View style={styles.tripStation}>
+            <View style={[styles.tripStation, { alignItems: 'flex-end' }]}>
               <Text style={styles.tripTime}>{trainBase.to_time}</Text>
               <Text style={styles.tripStationName}>{trainBase.to_stn_name}</Text>
             </View>
           </View>
           <Text style={styles.travelTime}>Journey: {trainBase.travel_time}</Text>
-        </View>
+        </LinearGradient>
 
         {/* Set Reminder Button */}
         <TouchableOpacity style={styles.reminderBtn} onPress={() => setModalVisible(true)}>
@@ -471,20 +528,29 @@ export const TrainDetailScreen = ({ route, navigation }) => {
               </>
             )}
 
-            {/* Preview */}
+            {/* Preview — scheduled notification times */}
             {isFormValid() && (() => {
               const notifs = buildNotifications();
               if (!notifs.length) return null;
+              const labels = bookingMode === 'regular'
+                ? ['📅 Eve (8 PM)', '🌅 Morning (7:45 AM)']
+                : bookingMode === 'tatkal'
+                  ? ['📅 Eve (8 PM)', '⚡ Tatkal (10:45 AM)']
+                  : ['🔔 Reminder'];
               return (
                 <View style={styles.previewBox}>
-                  <Ionicons name="notifications" size={16} color={Colors.primary} />
-                  <View style={{ flex: 1 }}>
-                    {notifs.map((n, i) => (
-                      <Text key={i} style={styles.previewText}>
-                        {i === 0 ? '🔔' : '🔔'} {format(n.triggerDate, "MMM dd 'at' hh:mm a")}
-                      </Text>
-                    ))}
+                  <View style={styles.previewHeader}>
+                    <Ionicons name="alarm" size={14} color={Colors.primary} />
+                    <Text style={styles.previewTitle}>Scheduled Alarms</Text>
                   </View>
+                  {notifs.map((n, i) => (
+                    <View key={i} style={styles.previewRow}>
+                      <Text style={styles.previewLabel}>{labels[i] || `🔔 Alarm ${i + 1}`}</Text>
+                      <Text style={styles.previewTime}>
+                        {format(n.triggerDate, "MMM dd 'at' hh:mm a")}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
               );
             })()}
@@ -905,5 +971,43 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: Colors.white,
+  },
+  previewBox: {
+    backgroundColor: Colors.primary + '10',
+    borderWidth: 1,
+    borderColor: Colors.primary + '30',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 14,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  previewTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: 0.3,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 5,
+    borderTopWidth: 1,
+    borderTopColor: Colors.primary + '15',
+  },
+  previewLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  previewTime: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.primary,
   },
 });

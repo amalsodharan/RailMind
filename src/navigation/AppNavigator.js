@@ -34,7 +34,7 @@ const SearchStackNavigator = () => (
 
 const TabNavigatorContent = () => {
   const insets = useSafeAreaInsets();
-  const tabBarHeight = 56 + insets.bottom;
+  const tabBarHeight = 60 + insets.bottom;
 
   return (
     <Tab.Navigator
@@ -42,18 +42,19 @@ const TabNavigatorContent = () => {
         headerShown: false,
         tabBarStyle: {
           backgroundColor: Colors.white,
-          borderTopColor: Colors.border,
-          borderTopWidth: 1,
+          borderTopWidth: 0,
           height: tabBarHeight,
-          paddingBottom: insets.bottom + 4,
-          paddingTop: 6,
+          paddingBottom: insets.bottom + 6,
+          paddingTop: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -3 },
+          shadowOpacity: 0.06,
+          shadowRadius: 8,
+          elevation: 12,
         },
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.textSecondary,
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '600',
-        },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
       }}
     >
       <Tab.Screen
